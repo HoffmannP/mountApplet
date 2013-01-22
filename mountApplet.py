@@ -2,18 +2,24 @@
 
 import pygtk
 import sys
-pygtk.require('2.0')
 
 import mateapplet
 import gtk
 
 import subprocess
+import os.path
+import gconf
+		
+import mountClass
 
 class switchButton:
 	state = 'offline'
 	image = None
 	button = None
 	applet = None
+	mount = None
+	window = None
+	mu = None
 
 	def __init__(self, applet):
 		self.image = gtk.Image()
@@ -24,14 +30,35 @@ class switchButton:
 		self.button.connect('button-press-event', self.clicked)
 		self.applet = applet
 		self.applet.add(self.button)
+		self.mount = mountClass.mountClass()
 
-	def mount(self):
-		return 'online'
-	def umount(self):
-		return 'offline'
+	def do_mount(self):
+		if not self.mount.mount():
+			print "Failed!"
+		print self.mount.status()
+		return self.mount.status()
+	def do_umount(self):
+		if not self.mount.umount():
+			print "Failed!"
+		print self.mount.status()
+		return self.mount.status()
+	def connectInfo(self):
+		dg = gtk.Dialog(
+			title = "No connection found",
+			flags = gtk.DIALOG_DESTROY_WITH_PARENT,
+			buttons = (gtk.STOCK_OK, gtk.RESPONSE_OK)
+		)
+		text = 'Upon mounting %s you need to establish a connection to %s' % (self.mount.mountName, self.mount.mountServer)
+		print text
+		label = gtk.Label(text)
+		dg.vbox.pack_start(label)
+		label.show()
+		dg.run()
+		dg.destroy()
+		return self.mount.status()
 
 	def clicked(self, widget, event):
-		widget.emit_stop_by_name("button_press_event")
+		widget.emit_stop_by_name('button-press-event')
 		return {
 			1:	self.leftClick,
 			3:	self.rightClick
@@ -39,8 +66,9 @@ class switchButton:
 
 	def leftClick(self):
 		self.state = {
-			'offline': self.mount,
-			'online':   self.umount
+			'offline': self.connectInfo,
+			'online':  self.do_mount,
+			'mounted': self.do_umount
 		}[self.state]()
 		self.set_image()
 		return True
@@ -54,23 +82,52 @@ class switchButton:
 		self.applet.setup_menu(propxml, verbs, None)
 		return False
 
-	def editPreferences(self, widget, menuentry):
-		window = gtk.Window()
-		window.connect("delete-event", gtk.main_quit)
-		window.set_border_width(10)
-		// gconf
-		button = gtk.Button("Hello World")
-		window.add(button)
+	def selectPreferences(self, widget, event):
+		self.state = self.mount.status()
+		print self.state
+		self.set_image()
+		self.button.set_tooltip_text(self.mount.mountName)
+		self.window.destroy()
 
-		window.show_all()
+	def setPref(self, item):
+		self.mount.select(item.get_label())
+
+	def editPreferences(self, widget, event):
+		self.window = gtk.Window()
+		
+		box = gtk.HBox()
+		self.window.add(box)
+
+		ic = gtk.Image()
+		ic.set_from_stock(stock_id=gtk.STOCK_CONNECT, size=gtk.ICON_SIZE_BUTTON)
+		box.add(ic)
+		
+		tx = gtk.Label(" Select Server: ")
+		box.add(tx)
+
+		mu = gtk.Menu()
+		for server in self.mount.mounts():
+			mi = gtk.MenuItem(server, use_underline=False)
+			mi.connect('activate', self.setPref)
+			mu.append(mi)
+		om = gtk.OptionMenu()
+		om.set_menu(mu)
+		box.add(om)
+
+		ok = gtk.Button(stock=gtk.STOCK_OK)
+		ok.connect('button-press-event', self.selectPreferences)
+		box.add(ok)
+		
+		self.window.show_all()
 		gtk.main()
 
 	def set_image(self):
-		self.image.set_from_file('/home/ber/Code/mate-panel-python-applet-example/' + self.state + '.png')
+		self.image.set_from_file(os.path.dirname(__file__) + '/' + self.state + '.png')
 
 def start(applet, iid):
 	sw = switchButton(applet)
 	sw.applet.show_all()
+	# sw.editPreferences(None, None)
 	return
 
 # If applet is run directly from the command line with the -d debug option we create a window to host it
